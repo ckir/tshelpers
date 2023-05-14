@@ -1,8 +1,7 @@
 # NodeJS Starter Project
 
-Project bootstrapped using [NodeJS Starter ToolKit](https://github.com/vitorsalgado/create-nodejs-ts).  
-Visit the repository for more details.
+Before copying this remember:
 
-## Getting Started
-
-Review the generated code, and it's recommended to run a `npm init` to adjust basic project configurations before start.
+shopt -s dotglob # To copy hidden files
+cp -r ...        # To copy subfolders
+rm -Rf .git      # To make the copy standalone
