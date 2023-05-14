@@ -1,40 +1,42 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "Node",
+    "allowJs": true,
     "allowSyntheticDefaultImports": true,
-    "esModuleInterop": true,
-    "importHelpers": true,
-    "resolveJsonModule": true,
-    "sourceMap": true,
-    "declaration": true,
-
     "alwaysStrict": true,
+    "baseUrl": ".",
+    "checkJs": false,
+    "composite": true,
+    "declaration": true,
+    "emitDecoratorMetadata": true,
+    "esModuleInterop": true,
+    "experimentalDecorators": true,
     "forceConsistentCasingInFileNames": true,
-    "removeComments": true,
+    "importHelpers": true,
+    "module": "ESNext",
+    "moduleResolution": "nodenext",
+    "noEmitHelpers": false,
+    "noFallthroughCasesInSwitch": true,
     "noImplicitAny": true,
-    "strictNullChecks": true,
-    "strictFunctionTypes": true,
+    "noImplicitReturns": true,
     "noImplicitThis": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noImplicitReturns": true,
-    "strict": true,
-    "noFallthroughCasesInSwitch": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "composite": true,
-    "skipLibCheck": true,
-    "noEmitHelpers": false,
-
     "outDir": "dist",
+    "removeComments": false,
+    "resolveJsonModule": true,
     "rootDir": "src",
-    "baseUrl": "."
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "strict": true,
+    "strictFunctionTypes": true,
+    "strictNullChecks": true,
+    "target": "ESNext"
   },
   "exclude": [
     "dist",
     "node_modules"
   ],
-  "include": ["src"]
+  "include": [
+    "src"
+  ]
 }
