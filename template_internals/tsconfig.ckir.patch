@@ -1,0 +1,10 @@
+@ ["compilerOptions","moduleResolution"]
+- "Node"
++ "nodenext"
+@ ["compilerOptions","removeComments"]
+- true
++ false
+@ ["compilerOptions","allowJs"]
++ true
+@ ["compilerOptions","checkJs"]
++ false
