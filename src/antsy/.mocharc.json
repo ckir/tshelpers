@@ -1,0 +1,11 @@
+{
+    "timeout": 5000,
+    "extension": [ "ts" ],
+    "node-option": [
+        "es-module-specifier-resolution=node",
+        "loader=ts-node/esm",
+        "no-warnings",
+        "enable-source-maps=true"
+    ],
+    "spec": [ "tests/**/*.test.ts" ]
+}

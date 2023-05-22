@@ -2,3 +2,9 @@
 	path = vendor/scripts-common
 	url = https://gitlab.com/bertrand-benoit/scripts-common.git
 	branch = stable
+[submodule "submodules/ansi-sequence-parser"]
+	path = submodules/ansi-sequence-parser
+	url = https://github.com/blake-mealey/ansi-sequence-parser.git
+[submodule "submodules/antsy"]
+	path = submodules/antsy
+	url = https://code.lag.net/robey/antsy.git

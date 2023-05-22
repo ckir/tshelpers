@@ -1,0 +1,36 @@
+{
+  "name": "antsy",
+  "version": "4.0.0",
+  "type": "module",
+  "description": "draw full-color (xterm-256) ansi graphics into a buffer",
+  "keywords": [
+    "ansi",
+    "xterm-256"
+  ],
+  "author": "Robey Pointer <robeypointer@gmail.com>",
+  "homepage": "https://github.com/robey/antsy",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/robey/antsy.git"
+  },
+  "license": "Apache-2.0",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf lib",
+    "distclean": "npm run clean && rm -rf node_modules npm-debug.log",
+    "prepare": "npm run build",
+    "test": "npm run build && mocha"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.1",
+    "@types/node": "^18.16.5",
+    "mocha": "^10.2.0",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.4"
+  },
+  "main": "./lib/antsy.js",
+  "types": "./lib/antsy.d.ts",
+  "files": [
+    "lib/"
+  ]
+}
