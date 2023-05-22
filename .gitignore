@@ -113,7 +113,6 @@ dist
 
 # Project
 .idea/
-.vscode/
 tools/dev
 package-lock.json
 

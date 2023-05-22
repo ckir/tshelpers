@@ -47,7 +47,7 @@ CONFIG.forEach((gitUrl) => {
         console.log(`Submodule [${moduleName}] already exists. Skipping ...`)
         return
     }
-    cmd = `cd ${folderSubmodules} && git submodule add ${gitUrl}`
+    cmd = `git submodule add ${gitUrl} ${folderSubmodules}/moduleName`
     run(cmd)
 
 })

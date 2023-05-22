@@ -56,3 +56,6 @@ while ((match = regex.exec(gitmodules))) {
     }
 
 }
+
+cmd = `git add .`
+run(cmd)

@@ -57,3 +57,5 @@ submodules.forEach((submodule) => {
 
 })
 
+cmd = `git add .`
+run(cmd)

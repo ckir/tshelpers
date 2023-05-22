@@ -56,5 +56,5 @@ const local = path.join(folderLocal, moduleName)
 cmd = `diff -ruN ${remote} ${local} | tee ${folderPatches}/${moduleName}/${new Date().toISOString().split('.')[0]}.patch`
 run(cmd)
 
-
-
+cmd = `git add .`
+run(cmd)
