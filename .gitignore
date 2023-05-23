@@ -116,3 +116,4 @@ dist
 tools/dev
 package-lock.json
 
+submodules/terminal-canvas
