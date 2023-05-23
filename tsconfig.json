@@ -39,6 +39,9 @@
   ],
   "include": [
     "src/antsy/src",
-    "src/ansi-sequence-parser/src"
+    "src/ansi-sequence-parser/src",
+    "src/kkirbatski-rectangle/src",
+    "src/positional-tokenizer/src",
+    "src/terminal-canvas/src"
   ]
 }

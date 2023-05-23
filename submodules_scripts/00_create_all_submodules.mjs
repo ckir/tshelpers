@@ -9,7 +9,10 @@ const rl = readline.createInterface({ input, output })
 
 const CONFIG = [
     'https://github.com/blake-mealey/ansi-sequence-parser.git',
-    'https://code.lag.net/robey/antsy.git'
+    'https://code.lag.net/robey/antsy.git',
+    'https://github.com/cmajsmith/positional-tokenizer.git',
+    'https://github.com/mmis1000/terminal-canvas.git',
+    'https://github.com/kkirby/kkirbatski-rectangle.git'
 ]
 const folderSubmodules = `submodules`
 let cmd
@@ -47,7 +50,9 @@ CONFIG.forEach((gitUrl) => {
         console.log(`Submodule [${moduleName}] already exists. Skipping ...`)
         return
     }
-    cmd = `git submodule add ${gitUrl} ${folderSubmodules}/moduleName`
+    cmd = `git submodule add ${gitUrl} ${folderSubmodules}/${moduleName}`
     run(cmd)
 
 })
+
+console.log('\n\nRun 10_create-all_local_folders.mjs to create local folders')

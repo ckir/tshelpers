@@ -8,3 +8,12 @@
 [submodule "submodules/antsy"]
 	path = submodules/antsy
 	url = https://code.lag.net/robey/antsy.git
+[submodule "submodules/positional-tokenizer"]
+	path = submodules/positional-tokenizer
+	url = https://github.com/cmajsmith/positional-tokenizer.git
+[submodule "submodules/terminal-canvas"]
+	path = submodules/terminal-canvas
+	url = https://github.com/mmis1000/terminal-canvas.git
+[submodule "submodules/kkirbatski-rectangle"]
+	path = submodules/kkirbatski-rectangle
+	url = https://github.com/kkirby/kkirbatski-rectangle.git
