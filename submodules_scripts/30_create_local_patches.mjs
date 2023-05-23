@@ -52,7 +52,7 @@ submodules.forEach((submodule) => {
     // -u == unified style, if your system lacks it or if recipient
     //       may not have it, use "-c"
     // -N == treat absent files as empty
-    cmd = `diff -ruN ${remote} ${local} | tee ${folderPatches}/${submodule}/${new Date().toISOString().split('.')[0]}.patch`
+    cmd = `diff -ruN ${remote} ${local} | tee ${folderPatches}/${submodule}/${new Date().toISOString().split('.')[0].replace(/:/g,'_')}.patch`
     run(cmd)
 
 })
