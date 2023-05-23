@@ -1,0 +1,2243 @@
+diff -ruN submodules/grid-layout/.git src/grid-layout/.git
+--- submodules/grid-layout/.git	2023-05-23 13:03:25.589528154 +0300
++++ src/grid-layout/.git	1970-01-01 02:00:00.000000000 +0200
+@@ -1 +0,0 @@
+-gitdir: ../../.git/modules/submodules/grid-layout
+diff -ruN submodules/grid-layout/lib/compute/composition.d.ts src/grid-layout/lib/compute/composition.d.ts
+--- submodules/grid-layout/lib/compute/composition.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/composition.d.ts	2023-05-23 13:26:33.369533624 +0300
+@@ -0,0 +1,12 @@
++import { Container } from '../container';
++import { TrackList, GridCell } from '../util/config';
++export declare class Composition {
++    container: Container;
++    rowTrack: TrackList;
++    columnTrack: TrackList;
++    cells: GridCell[][];
++    constructor(container: Container);
++    parseCellSize(): void;
++    parseNodeSize(): void;
++    compose(): void;
++}
+diff -ruN submodules/grid-layout/lib/compute/composition.js src/grid-layout/lib/compute/composition.js
+--- submodules/grid-layout/lib/compute/composition.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/composition.js	2023-05-23 13:27:28.289533178 +0300
+@@ -0,0 +1,57 @@
++import { GridCompute } from './grid.js';
++import { TrackCompute } from './track.js';
++export class Composition {
++    container;
++    rowTrack;
++    columnTrack;
++    cells;
++    constructor(container) {
++        this.container = container;
++        const grid = new GridCompute(this.container);
++        const gridTemplateAreas = this.container.config.gridTemplateAreas;
++        if (gridTemplateAreas && gridTemplateAreas.length) {
++            grid.setAreas(gridTemplateAreas);
++        }
++        const nodes = this.container.children;
++        grid.putNodes(nodes);
++        this.cells = grid.cells;
++        this.rowTrack = grid.rowTrack;
++        this.columnTrack = grid.columnTrack;
++    }
++    parseCellSize() {
++        this.cells.forEach((lines, rowIndex) => {
++            lines.forEach((item, columnIndex) => {
++                item.width = this.columnTrack[columnIndex].baseSize;
++                item.height = this.rowTrack[rowIndex].baseSize;
++                item.top = this.rowTrack[rowIndex].pos;
++                item.left = this.columnTrack[columnIndex].pos;
++            });
++        });
++    }
++    parseNodeSize() {
++        this.container.children.map((node) => {
++            const tops = [];
++            const lefts = [];
++            const bottoms = [];
++            const rights = [];
++            node.cells.forEach(cell => {
++                tops.push(cell.top);
++                lefts.push(cell.left);
++                rights.push(cell.left + cell.width);
++                bottoms.push(cell.top + cell.height);
++            });
++            const boundingRect = { top: Math.min(...tops), left: Math.min(...lefts) };
++            boundingRect.width = Math.max(...rights) - boundingRect.left;
++            boundingRect.height = Math.max(...bottoms) - boundingRect.top;
++            node.parsePosition(boundingRect);
++        });
++    }
++    compose() {
++        const rowInstance = new TrackCompute(this.rowTrack, this.cells, this.container, 'row');
++        rowInstance.parse();
++        const columnInstane = new TrackCompute(this.columnTrack, this.cells, this.container, 'column');
++        columnInstane.parse();
++        this.parseCellSize();
++        this.parseNodeSize();
++    }
++}
+diff -ruN submodules/grid-layout/lib/compute/grid.d.ts src/grid-layout/lib/compute/grid.d.ts
+--- submodules/grid-layout/lib/compute/grid.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/grid.d.ts	2023-05-23 13:26:33.329533624 +0300
+@@ -0,0 +1,31 @@
++import { GridCell, TrackList, GridAutoFlow, TrackItem, AreaNames } from '../util/config';
++import { Node } from '../node';
++import { Container } from '../container';
++export declare class GridCompute {
++    cells: GridCell[][];
++    areaNames: AreaNames;
++    container: Container;
++    rowTrack: TrackList;
++    initRowTrackSize: number;
++    columnTrack: TrackList;
++    initColumnTrackSize: number;
++    autoRowTrack: TrackList;
++    autoRowIndex: number;
++    autoColumnTrack: TrackList;
++    autoColumnIndex: number;
++    autoFlow: GridAutoFlow;
++    constructor(container: Container);
++    get defaultAutoTrack(): TrackItem;
++    get rowSize(): number;
++    get columnSize(): number;
++    private getInitCell;
++    putNodeInCell(row: number, column: number, node: Node): void;
++    private flexTrackSize;
++    setAreas(areas: string[][]): void;
++    putNodes(nodes: Node[]): void;
++    private putGivedNodes;
++    private tryToSetNode;
++    private putAutoNodes;
++    private findPositionByCustomIdent;
++    private parseGridPlacement;
++}
+diff -ruN submodules/grid-layout/lib/compute/grid.js src/grid-layout/lib/compute/grid.js
+--- submodules/grid-layout/lib/compute/grid.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/grid.js	2023-05-23 13:28:28.199532663 +0300
+@@ -0,0 +1,458 @@
++import { deepmerge } from '../util/util.js';
++export class GridCompute {
++    cells = [];
++    areaNames = {};
++    container;
++    rowTrack;
++    initRowTrackSize;
++    columnTrack;
++    initColumnTrackSize;
++    autoRowTrack;
++    autoRowIndex = 0;
++    autoColumnTrack;
++    autoColumnIndex = 0;
++    autoFlow;
++    constructor(container) {
++        this.container = container;
++        this.rowTrack = container.config.gridTemplateRows;
++        this.initRowTrackSize = this.rowTrack.length;
++        this.columnTrack = container.config.gridTemplateColumns;
++        this.initColumnTrackSize = this.columnTrack.length;
++        this.autoRowTrack = container.config.gridAutoRows;
++        if (!this.autoRowTrack.length) {
++            this.autoRowTrack[0] = this.defaultAutoTrack;
++        }
++        if (!this.rowTrack.length) {
++            this.rowTrack[0] = deepmerge(this.autoRowTrack[0]);
++        }
++        this.autoColumnTrack = container.config.gridAutoColumns;
++        if (!this.autoColumnTrack.length) {
++            this.autoColumnTrack[0] = this.defaultAutoTrack;
++        }
++        if (!this.columnTrack.length) {
++            this.columnTrack[0] = deepmerge(this.autoColumnTrack[0]);
++        }
++        this.autoFlow = this.container.config.gridAutoFlow || {};
++    }
++    get defaultAutoTrack() {
++        return {
++            type: 'auto',
++            baseSize: 0,
++            growthLimit: Infinity,
++            lineNamesStart: [],
++            lineNamesEnd: []
++        };
++    }
++    get rowSize() {
++        return this.rowTrack.length;
++    }
++    get columnSize() {
++        return this.columnTrack.length;
++    }
++    getInitCell(row, column) {
++        return {
++            row: row || 0,
++            column: column || 0,
++            node: []
++        };
++    }
++    putNodeInCell(row, column, node) {
++        if (!this.cells[row]) {
++            this.cells[row] = [];
++            this.flexTrackSize('row', row + 1);
++        }
++        this.flexTrackSize('column', column + 1);
++        if (!this.cells[row][column]) {
++            this.cells[row][column] = this.getInitCell(row, column);
++        }
++        this.cells[row][column].node.push(node);
++        node.cells.push(this.cells[row][column]);
++    }
++    flexTrackSize(type, size) {
++        const isRow = type === 'row';
++        const track = isRow ? this.rowTrack : this.columnTrack;
++        if (track.length < size) {
++            const autoTrack = isRow ? this.autoRowTrack : this.autoColumnTrack;
++            const length = autoTrack.length;
++            for (let i = track.length; i < size; i++) {
++                if (isRow) {
++                    track[i] = deepmerge(autoTrack[this.autoRowIndex++ % length]);
++                }
++                else {
++                    track[i] = deepmerge(autoTrack[this.autoColumnIndex++ % length]);
++                }
++            }
++        }
++    }
++    setAreas(areas) {
++        this.flexTrackSize('row', areas.length);
++        this.flexTrackSize('column', areas[0].length);
++        if (areas.length > this.initRowTrackSize) {
++            this.initRowTrackSize = areas.length;
++        }
++        if (areas[0].length > this.initColumnTrackSize) {
++            this.initColumnTrackSize = areas[0].length;
++        }
++        areas.forEach((line, row) => {
++            line.forEach((name, column) => {
++                if (!name)
++                    return;
++                if (!this.areaNames[name]) {
++                    this.areaNames[name] = [];
++                }
++                this.areaNames[name].push({ row, column });
++                const startName = `${name}-start`;
++                const endName = `${name}-end`;
++                if (!row) {
++                    this.rowTrack[row].lineNamesStart.push(startName);
++                }
++                else if (areas[row - 1][column] !== name) {
++                    this.rowTrack[row].lineNamesStart.push(startName);
++                    this.rowTrack[row - 1].lineNamesEnd.push(startName);
++                }
++                if (row === areas.length - 1) {
++                    this.rowTrack[row].lineNamesEnd.push(endName);
++                }
++                else if (areas[row + 1][column] !== name) {
++                    this.rowTrack[row].lineNamesEnd.push(endName);
++                    this.rowTrack[row + 1].lineNamesStart.push(endName);
++                }
++                if (!column) {
++                    this.columnTrack[column].lineNamesStart.push(startName);
++                }
++                else if (areas[row][column - 1] !== name) {
++                    this.columnTrack[column].lineNamesStart.push(startName);
++                    this.columnTrack[column - 1].lineNamesEnd.push(startName);
++                }
++                if (column === areas[row].length - 1) {
++                    this.columnTrack[column].lineNamesEnd.push(endName);
++                }
++                else if (areas[row][column + 1] !== name) {
++                    this.columnTrack[column].lineNamesEnd.push(endName);
++                    this.columnTrack[column + 1].lineNamesStart.push(endName);
++                }
++            });
++        });
++    }
++    putNodes(nodes) {
++        const autoNodes = [];
++        const givedNodes = [];
++        nodes.forEach(node => {
++            const area = node.config.gridArea;
++            if (area) {
++                if (this.areaNames[area]) {
++                    this.areaNames[area].forEach(pos => {
++                        this.putNodeInCell(pos.row, pos.column, node);
++                    });
++                }
++                else {
++                    this.putNodeInCell(this.initRowTrackSize + 1, this.initColumnTrackSize + 1, node);
++                }
++                return;
++            }
++            const { gridRowStart, gridRowEnd, gridColumnStart, gridColumnEnd } = node.config;
++            const rowPlacement = this.parseGridPlacement(this.rowTrack, gridRowStart, gridRowEnd, this.initRowTrackSize);
++            const columnPlacement = this.parseGridPlacement(this.columnTrack, gridColumnStart, gridColumnEnd, this.initColumnTrackSize);
++            node.placement = { row: rowPlacement, column: columnPlacement };
++            if (rowPlacement.start > -1 && columnPlacement.start > -1) {
++                for (let i = rowPlacement.start; i < rowPlacement.end; i++) {
++                    for (let j = columnPlacement.start; j < columnPlacement.end; j++) {
++                        this.putNodeInCell(i, j, node);
++                    }
++                }
++                return;
++            }
++            if (rowPlacement.start > -1) {
++                this.flexTrackSize('row', rowPlacement.end);
++                if (!this.autoFlow.column) {
++                    givedNodes.push(node);
++                    return;
++                }
++            }
++            if (columnPlacement.start > -1) {
++                this.flexTrackSize('column', columnPlacement.end);
++                if (this.autoFlow.column) {
++                    givedNodes.push(node);
++                    return;
++                }
++            }
++            autoNodes.push(node);
++        });
++        this.putGivedNodes(givedNodes);
++        this.putAutoNodes(autoNodes);
++    }
++    putGivedNodes(nodes) {
++        let index = 0;
++        nodes.forEach(node => {
++            const isRow = node.placement.row.start > -1;
++            const placement = isRow ? node.placement.row : node.placement.column;
++            let i = index;
++            while (true) {
++                let empty = true;
++                for (let j = placement.start; j < placement.end; j++) {
++                    const rowIndex = isRow ? j : i;
++                    const columnIndex = isRow ? i : j;
++                    if (this.cells[rowIndex] && this.cells[rowIndex][columnIndex] && this.cells[rowIndex][columnIndex].node.length) {
++                        empty = false;
++                        break;
++                    }
++                }
++                if (empty) {
++                    for (let j = placement.start; j < placement.end; j++) {
++                        const rowIndex = isRow ? j : i;
++                        const columnIndex = isRow ? i : j;
++                        this.putNodeInCell(rowIndex, columnIndex, node);
++                    }
++                    break;
++                }
++                i++;
++            }
++            this.flexTrackSize(isRow ? 'row' : 'column', i);
++            index = this.autoFlow.dense ? 0 : i;
++        });
++    }
++    tryToSetNode(node, rowIndex, columnIndex) {
++        const { row, column } = node.placement;
++        if (row.start > -1 && row.start !== rowIndex)
++            return false;
++        if (column.start > -1 && column.start !== columnIndex)
++            return false;
++        const rowEnd = row.end === -1 ? rowIndex + row.size : row.end;
++        const columnEnd = column.end === -1 ? columnIndex + column.size : column.end;
++        for (let i = rowIndex; i < rowEnd; i++) {
++            for (let j = columnIndex; j < columnEnd; j++) {
++                if (this.cells[i] && this.cells[i][j] && this.cells[i][j].node.length) {
++                    return false;
++                }
++            }
++        }
++        for (let i = rowIndex; i < rowEnd; i++) {
++            for (let j = columnIndex; j < columnEnd; j++) {
++                this.putNodeInCell(i, j, node);
++            }
++        }
++        return true;
++    }
++    putAutoNodes(nodes) {
++        let rowIndex = 0;
++        let columnIndex = 0;
++        nodes.forEach(node => {
++            const isColumnFlow = !!this.autoFlow.column;
++            if (!isColumnFlow) {
++                let i = rowIndex;
++                const columnSize = this.columnSize;
++                while (true) {
++                    let flag = false;
++                    for (let j = columnIndex; j < columnSize; j++) {
++                        if (this.tryToSetNode(node, i, j)) {
++                            columnIndex = j;
++                            flag = true;
++                            break;
++                        }
++                    }
++                    if (!flag) {
++                        columnIndex = 0;
++                    }
++                    else {
++                        rowIndex = i;
++                        break;
++                    }
++                    i++;
++                }
++                this.flexTrackSize('row', i + 1);
++            }
++            else {
++                let i = columnIndex;
++                const rowSize = this.rowSize;
++                while (true) {
++                    let flag = false;
++                    for (let j = rowIndex; j < rowSize; j++) {
++                        if (this.tryToSetNode(node, j, i)) {
++                            rowIndex = j;
++                            flag = true;
++                            break;
++                        }
++                    }
++                    if (!flag) {
++                        rowIndex = 0;
++                    }
++                    else {
++                        columnIndex = i;
++                        break;
++                    }
++                    i++;
++                }
++                this.flexTrackSize('column', i + 1);
++            }
++            if (this.autoFlow.dense) {
++                rowIndex = columnIndex = 0;
++            }
++        });
++    }
++    findPositionByCustomIdent(track, gridLine, type) {
++        let index = -1;
++        let num = 0;
++        let { customIdent, integer = 1 } = gridLine;
++        if (integer < 0) {
++            track = track.reverse();
++            integer = -integer;
++        }
++        track.some((item, idx) => {
++            const lineNames = type === 'start' ? item.lineNamesStart : item.lineNamesEnd;
++            if (lineNames.includes(customIdent)) {
++                num++;
++            }
++            if (num === integer) {
++                index = idx;
++                if (type === 'end') {
++                    index += 1;
++                }
++                return true;
++            }
++        });
++        return index;
++    }
++    parseGridPlacement(track, start, end, initSize) {
++        const pos = { start: -1, end: -1, size: 1 };
++        if (start.span) {
++            if (end.span) {
++                if (start.customIdent)
++                    return pos;
++                if (start.integer) {
++                    pos.size = start.integer;
++                    return pos;
++                }
++            }
++            else if (end.customIdent) {
++                pos.end = this.findPositionByCustomIdent(track, end, 'end');
++                if (pos.end === -1) {
++                    pos.end = initSize + 1;
++                }
++            }
++            else if (end.integer) {
++                if (end.integer > -1) {
++                    pos.end = end.integer - 1;
++                }
++                else {
++                    pos.end = track.length + end.integer + 1;
++                }
++            }
++            if (start.customIdent) {
++                if (pos.end > -1) {
++                    for (let i = pos.end - 1; i >= 0; i--) {
++                        let lineNamesStart = [];
++                        if (track[i]) {
++                            lineNamesStart = track[i].lineNamesStart;
++                        }
++                        else if (i > 0 && track[i - 1]) {
++                            lineNamesStart = track[i - 1].lineNamesEnd;
++                        }
++                        if (lineNamesStart.includes(start.customIdent)) {
++                            pos.start = i;
++                            break;
++                        }
++                    }
++                }
++            }
++            else if (start.integer) {
++                pos.start = Math.max(0, pos.end - start.integer);
++                pos.end = pos.start + start.integer;
++            }
++        }
++        else {
++            if (start.customIdent) {
++                pos.start = this.findPositionByCustomIdent(track, start, 'start');
++                if (pos.start === -1) {
++                    const size = initSize + 1;
++                    if (!end.span && end.customIdent) {
++                        const index = this.findPositionByCustomIdent(track, end, 'start');
++                        if (index > -1) {
++                            pos.start = index;
++                            pos.end = size;
++                        }
++                        else {
++                            pos.start = size;
++                            pos.end = pos.start + 1;
++                        }
++                        return pos;
++                    }
++                    else if (!end.span && end.integer) {
++                        const integer = end.integer - 1;
++                        if (integer > size) {
++                            pos.start = size;
++                            pos.end = integer;
++                        }
++                        else {
++                            pos.start = integer;
++                            pos.end = size === integer ? size + 1 : size;
++                        }
++                        return pos;
++                    }
++                }
++            }
++            else if (start.integer) {
++                pos.start = start.integer - 1;
++            }
++            if (end.span) {
++                if (pos.start === -1) {
++                    pos.start = 0;
++                }
++                if (end.customIdent) {
++                    for (let i = pos.start; i < track.length; i++) {
++                        if (track[i].lineNamesEnd.includes(end.customIdent)) {
++                            pos.end = i + 1;
++                            break;
++                        }
++                    }
++                    if (pos.end === -1) {
++                        pos.end = initSize + 1;
++                    }
++                }
++                else if (end.integer) {
++                    pos.end = pos.start + end.integer;
++                }
++            }
++            else if (end.customIdent) {
++                pos.end = this.findPositionByCustomIdent(track, end, 'end');
++                if (pos.end === -1) {
++                    if (!start.span && start.customIdent) {
++                        const index = this.findPositionByCustomIdent(track, end, 'start');
++                        if (index === -1) {
++                            pos.end = initSize + 1;
++                        }
++                        else if (index < pos.start) {
++                            pos.end = pos.start;
++                            pos.start = index;
++                        }
++                    }
++                    else if (!start.span && !start.customIdent && !start.integer) {
++                        pos.end = initSize + 1;
++                    }
++                }
++            }
++            else if (end.integer) {
++                if (end.integer < 0) {
++                    pos.end = track.length + end.integer + 1;
++                }
++                else {
++                    pos.end = end.integer - 1;
++                }
++            }
++        }
++        if (pos.start > -1 && pos.end === -1) {
++            pos.end = pos.start + 1;
++        }
++        else if (pos.end > -1 && pos.start === -1) {
++            pos.start = pos.end - 1;
++        }
++        else if (pos.start !== -1 && pos.start === pos.end) {
++            pos.end++;
++        }
++        if (pos.start > pos.end) {
++            const tmp = pos.end;
++            pos.end = pos.start;
++            pos.start = tmp;
++        }
++        return pos;
++    }
++}
+diff -ruN submodules/grid-layout/lib/compute/repeatTrack.d.ts src/grid-layout/lib/compute/repeatTrack.d.ts
+--- submodules/grid-layout/lib/compute/repeatTrack.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/repeatTrack.d.ts	2023-05-23 13:26:33.289533624 +0300
+@@ -0,0 +1,15 @@
++import { Container } from '../container';
++import { TrackList, TrackType } from '../util/config';
++export declare class RepeatTrackCompute {
++    trackList: TrackList;
++    container: Container;
++    type: TrackType;
++    constructor(trackList: TrackList, container: Container, type: TrackType);
++    private expandFixedRepeat;
++    get size(): number;
++    get gap(): number;
++    private getTrackItemValue;
++    private parseAutoRepeat;
++    private mergeLineNames;
++    parse(): void;
++}
+diff -ruN submodules/grid-layout/lib/compute/repeatTrack.js src/grid-layout/lib/compute/repeatTrack.js
+--- submodules/grid-layout/lib/compute/repeatTrack.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/repeatTrack.js	2023-05-23 13:28:07.279532931 +0300
+@@ -0,0 +1,118 @@
++import { deepmerge } from '../util/util.js';
++import { isFixedBreadth, isAutoRepeat, isFixedRepeat, isAutoFitRepeat } from '../util/track';
++export class RepeatTrackCompute {
++    trackList;
++    container;
++    type;
++    constructor(trackList, container, type) {
++        this.trackList = trackList;
++        this.container = container;
++        this.type = type;
++    }
++    expandFixedRepeat(track, num) {
++        const repeatNum = (num || track.args[0]);
++        const repeatValue = track.args[1];
++        const result = [];
++        let i = 0;
++        while (i++ < repeatNum) {
++            repeatValue.forEach(item => {
++                result.push(deepmerge(item));
++            });
++        }
++        return result;
++    }
++    get size() {
++        return this.type === 'row' ? this.container.config.height : this.container.config.width;
++    }
++    get gap() {
++        return (this.type === 'row' ? this.container.config.gridRowGap : this.container.config.gridColumnGap);
++    }
++    getTrackItemValue(item) {
++        switch (item.type) {
++            case 'px':
++                return item.value;
++            case '%':
++                return Math.round(item.value * this.size / 100);
++            case 'minmax':
++                const min = item.args[0];
++                const max = item.args[1];
++                return isFixedBreadth(min) ? min.value : max.value;
++        }
++        return 0;
++    }
++    parseAutoRepeat() {
++        const gap = this.gap;
++        let size = 0;
++        let repeatTrack;
++        let repeatIndex;
++        let isAutoFit = false;
++        this.trackList.forEach((item, index) => {
++            size += this.getTrackItemValue(item);
++            if (isAutoRepeat(item)) {
++                repeatTrack = item;
++                repeatIndex = index;
++                isAutoFit = isAutoFitRepeat(item);
++            }
++        });
++        let leaveSpace = this.size - size;
++        let repeatSize = 0;
++        const repeatList = repeatTrack.args[1];
++        repeatList.forEach(item => {
++            repeatSize += this.getTrackItemValue(item);
++        });
++        let count = 1;
++        if (leaveSpace > repeatSize) {
++            count = Math.floor(leaveSpace / repeatSize);
++            if (gap) {
++                const fixLength = this.trackList.length - 1;
++                const repeatLength = repeatList.length;
++                while (count > 1) {
++                    const gapSize = gap * (fixLength + repeatLength * count - 1);
++                    if (leaveSpace - gapSize - count * repeatSize > 0) {
++                        break;
++                    }
++                    else {
++                        count--;
++                    }
++                }
++            }
++        }
++        const repeatResult = this.expandFixedRepeat(repeatTrack, count);
++        if (isAutoFit) {
++            repeatResult.forEach(item => {
++                item.autoFit = true;
++            });
++        }
++        this.trackList.splice(repeatIndex, 1, ...repeatResult);
++    }
++    mergeLineNames() {
++        const length = this.trackList.length;
++        for (let i = 0; i < length - 1; i++) {
++            const current = this.trackList[i];
++            const next = this.trackList[i + 1];
++            const lineNames = current.lineNamesEnd.concat(next.lineNamesStart);
++            const set = new Set(lineNames);
++            current.lineNamesEnd = [...set];
++            next.lineNamesStart = [...set];
++        }
++    }
++    parse() {
++        const result = [];
++        let hasAutoRepeat = false;
++        this.trackList.forEach(item => {
++            if (isFixedRepeat(item)) {
++                result.push(...this.expandFixedRepeat(item));
++                return;
++            }
++            else if (isAutoRepeat(item)) {
++                hasAutoRepeat = true;
++            }
++            result.push(item);
++        });
++        this.trackList = result;
++        if (hasAutoRepeat) {
++            this.parseAutoRepeat();
++        }
++        this.mergeLineNames();
++    }
++}
+diff -ruN submodules/grid-layout/lib/compute/track.d.ts src/grid-layout/lib/compute/track.d.ts
+--- submodules/grid-layout/lib/compute/track.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/track.d.ts	2023-05-23 13:26:33.359533624 +0300
+@@ -0,0 +1,25 @@
++import { TrackList, GridCell, TrackType } from '../util/config';
++import { Container } from '../container';
++export declare class TrackCompute {
++    trackList: TrackList;
++    cells: GridCell[][];
++    container: Container;
++    type: TrackType;
++    containerSize: number;
++    freeSpace: number;
++    gap: number;
++    constructor(trackList: TrackList, cells: GridCell[][], container: Container, type: TrackType);
++    private parseTrackItemValue;
++    private removeEmptyAutoFitTrack;
++    private parseTrackSize;
++    private getTrackNodes;
++    private getNodeInCellSize;
++    private parseMinContent;
++    private parseMaxContent;
++    private parseFitContent;
++    private parseFrTrack;
++    private parseMinMaxTrack;
++    private parseAutoTrack;
++    private parseTrackPosition;
++    parse(): void;
++}
+diff -ruN submodules/grid-layout/lib/compute/track.js src/grid-layout/lib/compute/track.js
+--- submodules/grid-layout/lib/compute/track.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/compute/track.js	2023-05-23 13:28:20.769532711 +0300
+@@ -0,0 +1,320 @@
++import { isAutoMinMaxTrack, isAutoTrack, isMinMaxTrack, isFrTrack, isFixedBreadth, isFrMinMaxTrack } from '../util/track';
++import { parseAlignSpace } from '../util/util.js';
++export class TrackCompute {
++    trackList;
++    cells;
++    container;
++    type;
++    containerSize;
++    freeSpace;
++    gap;
++    constructor(trackList, cells, container, type) {
++        this.trackList = trackList;
++        this.cells = cells;
++        this.container = container;
++        this.type = type;
++        const config = this.container.config;
++        const gap = (this.type === 'row' ? config.gridRowGap : config.gridColumnGap);
++        this.gap = gap;
++        this.containerSize = this.type === 'row' ? config.height : config.width;
++    }
++    parseTrackItemValue(track, index) {
++        switch (track.type) {
++            case 'min-content':
++                return this.parseMinContent(index);
++            case 'max-content':
++                return this.parseMaxContent(index);
++            case 'fit-content':
++                return this.parseFitContent(track, index);
++            case '%':
++                return track.value * this.containerSize / 100;
++            case 'auto':
++                return this.parseMinContent(index);
++            case 'px':
++                return track.value;
++        }
++        return -1;
++    }
++    removeEmptyAutoFitTrack() {
++        const tracks = [];
++        this.trackList.forEach((track, index) => {
++            if (track.autoFit) {
++                const nodes = this.getTrackNodes(index);
++                if (nodes.length === 0)
++                    return;
++            }
++            tracks.push(track);
++        });
++        this.trackList = tracks;
++    }
++    parseTrackSize() {
++        this.trackList.forEach((track, index) => {
++            if (isMinMaxTrack(track)) {
++                const min = track.args[0];
++                const max = track.args[1];
++                const minValue = this.parseTrackItemValue(min, index);
++                const minContentValue = this.parseMinContent(index);
++                const maxValue = this.parseTrackItemValue(max, index);
++                if (maxValue > -1) {
++                    track.growthLimit = maxValue;
++                    track.baseSize = Math.max(minValue, Math.min(minContentValue, maxValue));
++                }
++                else {
++                    track.baseSize = Math.max(minValue, minContentValue);
++                }
++                if (track.growthLimit < track.baseSize) {
++                    track.growthLimit = track.baseSize;
++                }
++            }
++            else {
++                const value = this.parseTrackItemValue(track, index);
++                if (value > -1) {
++                    track.baseSize = value;
++                }
++            }
++        });
++    }
++    getTrackNodes(index) {
++        const items = this.type === 'row' ? this.cells[index] : this.cells.map(item => item[index]);
++        const result = [];
++        (items || []).forEach(item => {
++            if (item && item.node) {
++                result.push(...item.node);
++            }
++        });
++        return result;
++    }
++    getNodeInCellSize(node, size, index) {
++        const cells = node.cells;
++        if (cells.length === 1)
++            return size;
++        let min = 0;
++        let max = 0;
++        cells.forEach((cell, index) => {
++            const idx = this.type === 'row' ? cell.row : cell.column;
++            if (index === 0) {
++                min = idx;
++                max = idx;
++            }
++            else {
++                min = Math.min(min, idx);
++                max = Math.max(max, idx);
++            }
++        });
++        if (min === max)
++            return size;
++        let num = 0;
++        for (let i = min; i <= max; i++) {
++            const track = this.trackList[i];
++            if (isFixedBreadth(track)) {
++                size -= track.baseSize;
++            }
++            else {
++                num++;
++            }
++        }
++        const itemValue = Math.round(Math.max(0, size) / num);
++        if (index === max) {
++            return size - itemValue * (num - 1);
++        }
++        return itemValue;
++    }
++    parseMinContent(index) {
++        const nodes = this.getTrackNodes(index);
++        const size = nodes.map(node => {
++            const value = this.type === 'row' ? node.minContentHeight : node.minContentWidth;
++            return this.getNodeInCellSize(node, value, index);
++        });
++        if (size.length === 0)
++            return 0;
++        return Math.max(...size);
++    }
++    parseMaxContent(index) {
++        const nodes = this.getTrackNodes(index);
++        const size = nodes.map(node => {
++            const value = this.type === 'row' ? node.maxContentHeight : node.maxContentWidth;
++            return this.getNodeInCellSize(node, value, index);
++        });
++        if (size.length === 0)
++            return 0;
++        return Math.max(...size);
++    }
++    parseFitContent(track, index) {
++        const arg = track.args[0];
++        if (arg.type === '%') {
++            const config = this.container.config;
++            arg.value *= (this.type === 'row' ? config.height : config.width) / 100;
++        }
++        const min = this.parseMinContent(index);
++        const max = this.parseMaxContent(index);
++        return Math.min(max, Math.max(min, arg.value));
++    }
++    parseFrTrack() {
++        let frCount = 0;
++        let freeSpace = this.freeSpace;
++        this.trackList.forEach(track => {
++            if (isFrTrack(track)) {
++                frCount += track.value;
++            }
++            else if (isMinMaxTrack(track)) {
++                const max = track.args[1];
++                if (isFrTrack(max)) {
++                    frCount += max.value;
++                }
++                else if (isAutoTrack(max)) {
++                    freeSpace -= track.baseSize;
++                }
++                else {
++                    freeSpace -= track.growthLimit;
++                }
++            }
++            else {
++                freeSpace -= track.baseSize;
++            }
++        });
++        if (!frCount)
++            return;
++        frCount = Math.max(1, frCount);
++        while (true) {
++            const itemSpace = Math.max(0, freeSpace) / frCount;
++            let flag = false;
++            this.trackList.forEach((track, index) => {
++                if (isFrTrack(track)) {
++                    const space = track.value * itemSpace;
++                    const minSpace = this.parseMinContent(index);
++                    if (space < minSpace) {
++                        frCount -= track.value;
++                        freeSpace -= minSpace;
++                        track.baseSize = minSpace;
++                        track.growthLimit = track.baseSize;
++                        track.type = 'px';
++                        flag = true;
++                    }
++                }
++                else if (isFrMinMaxTrack(track)) {
++                    const max = track.args[1];
++                    const space = max.value * itemSpace;
++                    if (space < track.baseSize) {
++                        frCount -= max.value;
++                        freeSpace -= track.baseSize;
++                        track.growthLimit = track.baseSize;
++                        max.value = track.baseSize;
++                        max.type = 'px';
++                        flag = true;
++                    }
++                }
++            });
++            if (!flag) {
++                this.trackList.forEach((track, index) => {
++                    if (isFrTrack(track)) {
++                        track.baseSize = track.value * itemSpace;
++                        track.type = 'px';
++                    }
++                    else if (isFrMinMaxTrack(track)) {
++                        const max = track.args[1];
++                        const space = max.value * itemSpace;
++                        max.value = space;
++                        max.type = 'px';
++                        track.growthLimit = space;
++                        if (track.growthLimit < track.baseSize) {
++                            track.growthLimit = track.baseSize;
++                        }
++                    }
++                });
++                break;
++            }
++        }
++    }
++    parseMinMaxTrack() {
++        let freeSpace = this.freeSpace;
++        let minmaxCount = 0;
++        this.trackList.forEach(track => {
++            freeSpace -= track.baseSize;
++            if (isMinMaxTrack(track)) {
++                const max = track.args[1];
++                if (!isAutoTrack(max)) {
++                    minmaxCount++;
++                }
++            }
++        });
++        if (!minmaxCount || freeSpace < 0)
++            return;
++        while (true) {
++            const itemSpace = freeSpace / minmaxCount;
++            let flag = false;
++            this.trackList.forEach(track => {
++                if (isMinMaxTrack(track)) {
++                    const max = track.args[1];
++                    if (!isAutoTrack(max) && track.growthLimit < track.baseSize + itemSpace) {
++                        track.baseSize = track.growthLimit;
++                        freeSpace -= track.growthLimit - track.baseSize;
++                        minmaxCount--;
++                        flag = true;
++                    }
++                }
++            });
++            if (!flag) {
++                this.trackList.forEach(track => {
++                    if (isMinMaxTrack(track)) {
++                        const max = track.args[1];
++                        if (!isAutoTrack(max) && track.growthLimit > track.baseSize) {
++                            track.baseSize += itemSpace;
++                        }
++                    }
++                });
++                break;
++            }
++        }
++    }
++    parseAutoTrack() {
++        const config = this.container.config;
++        if (this.type === 'column' && config.justifyContent !== 'stretch')
++            return;
++        if (this.type === 'row' && config.alignContent !== 'stretch')
++            return;
++        let freeSpace = this.freeSpace;
++        let autoCount = 0;
++        this.trackList.forEach(track => {
++            freeSpace -= track.baseSize;
++            if (isAutoTrack(track) || isAutoMinMaxTrack(track)) {
++                autoCount++;
++            }
++        });
++        if (!autoCount || freeSpace < 0)
++            return;
++        let itemSpace = Math.round(freeSpace / autoCount);
++        let count = 0;
++        this.trackList.forEach(track => {
++            if (isAutoTrack(track) || isAutoMinMaxTrack(track)) {
++                if (count === autoCount - 1) {
++                    itemSpace = freeSpace - itemSpace * count;
++                }
++                track.baseSize += itemSpace;
++                count++;
++            }
++        });
++    }
++    parseTrackPosition() {
++        let freeSpace = this.freeSpace;
++        this.trackList.forEach(track => {
++            freeSpace -= track.baseSize;
++        });
++        const config = this.container.config;
++        const type = this.type === 'row' ? config.alignContent : config.justifyContent;
++        const marginSize = parseAlignSpace(freeSpace, type, this.trackList.length);
++        let pos = 0;
++        this.trackList.forEach((track, index) => {
++            track.pos = pos + marginSize[index];
++            pos = track.pos + track.baseSize + this.gap;
++        });
++    }
++    parse() {
++        this.removeEmptyAutoFitTrack();
++        this.freeSpace = this.containerSize - this.gap * (this.trackList.length - 1);
++        this.parseTrackSize();
++        this.parseFrTrack();
++        this.parseMinMaxTrack();
++        this.parseAutoTrack();
++        this.parseTrackPosition();
++    }
++}
+diff -ruN submodules/grid-layout/lib/container.d.ts src/grid-layout/lib/container.d.ts
+--- submodules/grid-layout/lib/container.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/container.d.ts	2023-05-23 13:26:33.379533624 +0300
+@@ -0,0 +1,12 @@
++import { Node } from './node';
++import { ContainerConfig, ContainerBoundingRect } from './util/config';
++export declare class Container {
++    children: Node[];
++    config: ContainerConfig;
++    constructor(config: ContainerConfig);
++    appendChild(node: Node): this;
++    private parseOrder;
++    private parse;
++    calculateLayout(): void;
++    getAllComputedLayout(): ContainerBoundingRect;
++}
+diff -ruN submodules/grid-layout/lib/container.js src/grid-layout/lib/container.js
+--- submodules/grid-layout/lib/container.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/container.js	2023-05-23 13:38:45.699531364 +0300
+@@ -0,0 +1,91 @@
++import { TrackParser } from './parser/track.js';
++import { RepeatTrackCompute } from './compute/repeatTrack.js';
++import { AreaParser } from './parser/area.js';
++import { Composition } from './compute/composition.js';
++export class Container {
++    children = [];
++    config;
++    constructor(config) {
++        this.config = Object.assign({}, config);
++    }
++    appendChild(node) {
++        node.parent = this;
++        this.children.push(node);
++        return this;
++    }
++    parseOrder(items) {
++        items.sort((a, b) => {
++            const ar = a.config.order | 0;
++            const br = b.config.order | 0;
++            if (a.config.order && b.config.order)
++                return ar > br ? 1 : -1;
++            if (a.config.order)
++                return ar > 0 ? 1 : -1;
++            if (b.config.order)
++                return br > 0 ? -1 : 1;
++            return a.id > b.id ? 1 : -1;
++        });
++        return items;
++    }
++    parse() {
++        this.parseOrder(this.children);
++        ['gridTemplateRows', 'gridTemplateColumns', 'gridAutoRows', 'gridAutoColumns'].forEach(item => {
++            const parser = new TrackParser(this.config[item]);
++            parser.parse();
++            const type = item.includes('Rows') ? 'row' : 'column';
++            const compute = new RepeatTrackCompute(parser.trackList, this, type);
++            compute.parse();
++            this.config[item] = compute.trackList;
++        });
++        if (this.config.gridAutoFlow) {
++            const gridAutoFlow = this.config.gridAutoFlow;
++            const autoFlow = {};
++            if (gridAutoFlow.indexOf('column') > -1) {
++                autoFlow.column = true;
++            }
++            else {
++                autoFlow.row = true;
++            }
++            if (gridAutoFlow.indexOf('dense') > -1) {
++                autoFlow.dense = true;
++            }
++            this.config.gridAutoFlow = autoFlow;
++        }
++        if (this.config.gridTemplateAreas && typeof this.config.gridTemplateAreas === 'string') {
++            const instance = new AreaParser(this.config.gridTemplateAreas);
++            const areas = instance.parse();
++            this.config.gridTemplateAreas = areas;
++        }
++        this.config.gridRowGap = parseFloat(this.config.gridRowGap) || 0;
++        if (this.config.gridRowGap < 0) {
++            throw new Error('gridRowGap: negative values are invalid');
++        }
++        this.config.gridColumnGap = parseFloat(this.config.gridColumnGap) || 0;
++        if (this.config.gridColumnGap < 0) {
++            throw new Error('gridColumnGap: negative values are invalid');
++        }
++        ['justifyContent', 'alignContent', 'alignItems', 'justifyItems'].forEach(item => {
++            if (!this.config[item]) {
++                this.config[item] = 'stretch';
++            }
++        });
++    }
++    calculateLayout() {
++        this.parse();
++        this.children.forEach(item => {
++            item.parse();
++        });
++        const instance = new Composition(this);
++        instance.compose();
++    }
++    getAllComputedLayout() {
++        this.children.sort((a, b) => {
++            return a.id > b.id ? 1 : -1;
++        });
++        const layout = { top: 0, left: 0, width: this.config.width, height: this.config.height };
++        layout.children = this.children.map(item => {
++            return item.getComputedLayout();
++        });
++        return layout;
++    }
++}
+diff -ruN submodules/grid-layout/lib/index.d.ts src/grid-layout/lib/index.d.ts
+--- submodules/grid-layout/lib/index.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/index.d.ts	2023-05-23 13:26:33.389533624 +0300
+@@ -0,0 +1,2 @@
++export { Node } from './node';
++export { Container } from './container';
+diff -ruN submodules/grid-layout/lib/index.js src/grid-layout/lib/index.js
+--- submodules/grid-layout/lib/index.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/index.js	2023-05-23 13:32:42.339530920 +0300
+@@ -0,0 +1,2 @@
++export { Node } from './node.js';
++export { Container } from './container.js';
+diff -ruN submodules/grid-layout/lib/node.d.ts src/grid-layout/lib/node.d.ts
+--- submodules/grid-layout/lib/node.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/node.d.ts	2023-05-23 13:26:33.229533625 +0300
+@@ -0,0 +1,27 @@
++import { NodeConfig, GridPlacement, BoundingRect, GridCell } from './util/config';
++import { Container } from './container';
++export declare class Node {
++    id: number;
++    parent: Container;
++    config: NodeConfig;
++    boundingRect: BoundingRect;
++    cells: GridCell[];
++    placement: GridPlacement;
++    constructor(config?: NodeConfig);
++    parse(): void;
++    private parseGridLine;
++    private parseCombineProperty;
++    private parseSize;
++    private getComputedWidth;
++    private getLayoutWidth;
++    private getComputedHeight;
++    private getLayoutHeight;
++    get minContentWidth(): number;
++    get maxContentWidth(): number;
++    get minContentHeight(): number;
++    get maxContentHeight(): number;
++    private parseAutoMargin;
++    private parseAlign;
++    parsePosition(boundingRect: BoundingRect): void;
++    getComputedLayout(): BoundingRect;
++}
+diff -ruN submodules/grid-layout/lib/node.js src/grid-layout/lib/node.js
+--- submodules/grid-layout/lib/node.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/node.js	2023-05-23 13:32:52.929530900 +0300
+@@ -0,0 +1,223 @@
++import { parseNumberValue, parseMarginAuto, parseMinMaxValue, parseCombineValue } from './util/util.js';
++let id = 1;
++export class Node {
++    id = 1;
++    parent;
++    config;
++    boundingRect = {};
++    cells = [];
++    placement = {
++        row: { start: -1, end: -1, size: 1 },
++        column: { start: -1, end: -1, size: 1 }
++    };
++    constructor(config = {}) {
++        this.id = id++;
++        this.config = Object.assign({}, config);
++    }
++    parse() {
++        const keys = Object.keys(this.config);
++        keys.forEach(item => {
++            if (item.startsWith('border') || item.startsWith('padding') || item.startsWith('margin')) {
++                this.parseCombineProperty(item);
++            }
++        });
++        ['gridRowStart', 'gridRowEnd', 'gridColumnStart', 'gridColumnEnd'].forEach(item => {
++            this.parseGridLine(item);
++        });
++        this.parseSize();
++        if (!this.config.alignSelf) {
++            this.config.alignSelf = 'auto';
++        }
++        if (!this.config.justifySelf) {
++            this.config.justifySelf = 'auto';
++        }
++    }
++    parseGridLine(property) {
++        const value = this.config[property];
++        if (!value || value === 'auto') {
++            this.config[property] = {};
++        }
++        else if (typeof value === 'number') {
++            this.config[property] = { integer: value };
++        }
++        else {
++            const arr = value.split(/\s+/g).filter(item => item);
++            const desc = {};
++            arr.forEach(item => {
++                if (item === 'span') {
++                    if (desc.span) {
++                        throw new Error(`${property}: ${value} is not valid`);
++                    }
++                    desc.span = true;
++                }
++                else if (/^\-?\d+$/.test(item)) {
++                    desc.integer = parseInt(item, 10);
++                }
++                else {
++                    desc.customIdent = item;
++                }
++            });
++            this.config[property] = desc;
++        }
++    }
++    parseCombineProperty(property) {
++        const pWidth = this.parent.config.width;
++        if (property === 'border' || property === 'padding' || property === 'margin') {
++            const values = parseCombineValue(property).map(item => parseNumberValue(item, pWidth));
++            const props = [`${property}Top`, `${property}Right`, `${property}Bottom`, `${property}Left`];
++            props.forEach((item, index) => {
++                this.config[item] = values[index];
++            });
++        }
++        else {
++            this.config[property] = parseNumberValue(this.config[property], pWidth);
++        }
++    }
++    parseSize() {
++        const pWidth = this.parent.config.width;
++        this.config.width = parseNumberValue(this.config.width, pWidth);
++        this.config.minWidth = parseNumberValue(this.config.minWidth, pWidth);
++        this.config.maxWidth = parseNumberValue(this.config.maxWidth, pWidth);
++        if (this.config.minWidth > this.config.maxWidth) {
++            this.config.maxWidth = 0;
++        }
++        const pHeight = this.parent.config.height;
++        this.config.height = parseNumberValue(this.config.height, pHeight);
++        this.config.minHeight = parseNumberValue(this.config.minHeight, pHeight);
++        this.config.maxHeight = parseNumberValue(this.config.maxHeight, pHeight);
++        if (this.config.minHeight > this.config.maxHeight) {
++            this.config.maxHeight = 0;
++        }
++        this.config.minContentWidth = parseNumberValue(this.config.minContentWidth, pWidth);
++        this.config.maxContentWidth = parseNumberValue(this.config.maxContentWidth, pWidth);
++        this.config.minContentHeight = parseNumberValue(this.config.minContentHeight, pHeight);
++        this.config.maxContentHeight = parseNumberValue(this.config.maxContentHeight, pHeight);
++        this.boundingRect.width = this.getComputedWidth(this.config.minContentWidth);
++        this.boundingRect.height = this.getComputedHeight(this.config.minContentHeight);
++    }
++    getComputedWidth(width = 0) {
++        width = this.config.width || width || 0;
++        const minWidth = this.config.minWidth;
++        let maxWidth = this.config.maxWidth;
++        return parseMinMaxValue(width, minWidth, maxWidth);
++    }
++    getLayoutWidth(width = 0) {
++        width = this.getComputedWidth(width);
++        const marginLeft = parseMarginAuto(this.config.marginLeft);
++        const marginRight = parseMarginAuto(this.config.marginRight);
++        width += marginLeft + marginRight;
++        if (this.config.boxSizing !== 'border-box') {
++            const props = ['borderLeft', 'borderRight', 'paddingLeft', 'paddingRight'];
++            props.forEach((item) => {
++                width += this.config[item] || 0;
++            });
++        }
++        return width;
++    }
++    getComputedHeight(height = 0) {
++        height = this.config.height || height || 0;
++        const minHeight = this.config.minHeight;
++        let maxHeight = this.config.maxHeight;
++        return parseMinMaxValue(height, minHeight, maxHeight);
++    }
++    getLayoutHeight(height = 0) {
++        height = this.getComputedHeight(height);
++        const marginTop = parseMarginAuto(this.config.marginTop);
++        const marginBottom = parseMarginAuto(this.config.marginBottom);
++        height += marginTop + marginBottom;
++        if (this.config.boxSizing !== 'border-box') {
++            const props = ['borderTop', 'borderBottom', 'paddingTop', 'paddingBottom'];
++            props.forEach((item) => {
++                height += this.config[item] || 0;
++            });
++        }
++        return height;
++    }
++    get minContentWidth() {
++        return this.getLayoutWidth(this.config.minContentWidth);
++    }
++    get maxContentWidth() {
++        return this.getLayoutWidth(this.config.maxContentWidth);
++    }
++    get minContentHeight() {
++        return this.getLayoutHeight(this.config.minContentHeight);
++    }
++    get maxContentHeight() {
++        return this.getLayoutHeight(this.config.maxContentHeight);
++    }
++    parseAutoMargin(type, boundingRect) {
++        const isRow = type === 'row';
++        const marginStart = isRow ? this.config.marginTop : this.config.marginLeft;
++        const marginEnd = isRow ? this.config.marginBottom : this.config.marginRight;
++        const startAuto = marginStart === 'auto';
++        const endAuto = marginEnd === 'auto';
++        if (startAuto || endAuto) {
++            const cellSize = isRow ? boundingRect.height : boundingRect.width;
++            const nodeSize = isRow ? this.getLayoutHeight() : this.getLayoutWidth();
++            const size = Math.max(0, cellSize - nodeSize);
++            const prop = isRow ? 'top' : 'left';
++            if (startAuto && endAuto) {
++                this.boundingRect[prop] = boundingRect[prop] + size / 2;
++            }
++            else if (startAuto) {
++                this.boundingRect[prop] = boundingRect[prop] + size;
++            }
++            else {
++                this.boundingRect[prop] = boundingRect[prop] + parseMarginAuto(marginStart);
++            }
++            return true;
++        }
++        return false;
++    }
++    parseAlign(align, type, boundingRect) {
++        const isRow = type === 'row';
++        const prop = isRow ? 'top' : 'left';
++        const sizeProp = isRow ? 'height' : 'width';
++        const cellSize = isRow ? boundingRect.height : boundingRect.width;
++        const nodeSize = isRow ? this.getLayoutHeight() : this.getLayoutWidth();
++        const size = Math.max(0, cellSize - nodeSize);
++        const marginStart = parseMarginAuto(isRow ? this.config.marginTop : this.config.marginLeft);
++        switch (align) {
++            case 'start':
++                this.boundingRect[prop] = boundingRect[prop] + marginStart;
++                break;
++            case 'center':
++                this.boundingRect[prop] = boundingRect[prop] + size / 2 + marginStart;
++                break;
++            case 'end':
++                this.boundingRect[prop] = boundingRect[prop] + size + marginStart;
++                break;
++            case 'stretch':
++                if (!this.config[sizeProp]) {
++                    const min = (isRow ? this.config.minHeight : this.config.minWidth);
++                    const max = (isRow ? this.config.maxHeight : this.config.maxWidth);
++                    const marginEnd = parseMarginAuto(isRow ? this.config.marginBottom : this.config.marginRight);
++                    const value = parseMinMaxValue(boundingRect[sizeProp] - marginStart - marginEnd, min, max);
++                    if (value > this.boundingRect[sizeProp]) {
++                        this.boundingRect[sizeProp] = value;
++                    }
++                }
++                this.boundingRect[prop] = boundingRect[prop] + marginStart;
++                break;
++        }
++    }
++    parsePosition(boundingRect) {
++        if (!this.parseAutoMargin('row', boundingRect)) {
++            let alignSelf = this.config.alignSelf;
++            if (alignSelf === 'auto') {
++                alignSelf = this.parent.config.alignItems;
++            }
++            this.parseAlign(alignSelf, 'row', boundingRect);
++        }
++        if (!this.parseAutoMargin('column', boundingRect)) {
++            let justifySelf = this.config.justifySelf;
++            if (justifySelf === 'auto') {
++                justifySelf = this.parent.config.justifyItems;
++            }
++            this.parseAlign(justifySelf, 'column', boundingRect);
++        }
++    }
++    getComputedLayout() {
++        return this.boundingRect;
++    }
++}
+diff -ruN submodules/grid-layout/lib/parser/area.d.ts src/grid-layout/lib/parser/area.d.ts
+--- submodules/grid-layout/lib/parser/area.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/parser/area.d.ts	2023-05-23 13:26:33.289533624 +0300
+@@ -0,0 +1,5 @@
++import { Parser } from './base';
++export declare class AreaParser extends Parser {
++    parse(): string[][];
++    checkAreaName(tokens: string[][], rowIndex: number, columnIndex: number): void;
++}
+diff -ruN submodules/grid-layout/lib/parser/area.js src/grid-layout/lib/parser/area.js
+--- submodules/grid-layout/lib/parser/area.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/parser/area.js	2023-05-23 13:29:13.839531560 +0300
+@@ -0,0 +1,47 @@
++import { Parser } from './base.js';
++import { AreaTokenizer } from '../tokenizer/area.js';
++export class AreaParser extends Parser {
++    parse() {
++        const instance = new AreaTokenizer(this.text);
++        const tokens = instance.getTokens();
++        const maxColumns = Math.max(...tokens.map(columns => columns.length));
++        const maxColumnsArr = [...new Array(maxColumns)];
++        const names = [];
++        tokens.forEach((row, rowIndex) => {
++            maxColumnsArr.forEach((_, columnIndex) => {
++                const column = (row[columnIndex] || '').replace(/\.+/, '');
++                if (column !== '' && !names.includes(column)) {
++                    this.checkAreaName(tokens, rowIndex, columnIndex);
++                    names.push(column);
++                }
++                row[columnIndex] = column;
++            });
++        });
++        return tokens;
++    }
++    checkAreaName(tokens, rowIndex, columnIndex) {
++        const name = tokens[rowIndex][columnIndex];
++        let maxRow = rowIndex;
++        let maxColumn = columnIndex;
++        for (let i = rowIndex, length = tokens.length; i < length; i++) {
++            const start = i === rowIndex ? columnIndex + 1 : 0;
++            for (let j = start; j < tokens[i].length; j++) {
++                const item = tokens[i][j];
++                if (item === name) {
++                    if (j < columnIndex) {
++                        throw new Error('areas is not valid');
++                    }
++                    maxRow = Math.max(maxRow, i);
++                    maxColumn = Math.max(maxColumn, j);
++                }
++            }
++        }
++        for (let i = rowIndex; i <= maxRow; i++) {
++            for (let j = columnIndex; j <= maxColumn; j++) {
++                if (tokens[i][j] !== name) {
++                    throw new Error('areas is not valid');
++                }
++            }
++        }
++    }
++}
+diff -ruN submodules/grid-layout/lib/parser/base.d.ts src/grid-layout/lib/parser/base.d.ts
+--- submodules/grid-layout/lib/parser/base.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/parser/base.d.ts	2023-05-23 13:26:33.239533624 +0300
+@@ -0,0 +1,9 @@
++export declare class Parser {
++    tokens: string[];
++    text: string;
++    index: number;
++    length: number;
++    constructor(text: string);
++    nextNeed(token: string): void;
++    peek(): string;
++}
+diff -ruN submodules/grid-layout/lib/parser/base.js src/grid-layout/lib/parser/base.js
+--- submodules/grid-layout/lib/parser/base.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/parser/base.js	2023-05-23 13:26:33.239533624 +0300
+@@ -0,0 +1,17 @@
++export class Parser {
++    tokens;
++    text;
++    index = 0;
++    length;
++    constructor(text) {
++        this.text = text;
++    }
++    nextNeed(token) {
++        if (this.peek() !== token) {
++            throw new Error(`next token must be ${token}`);
++        }
++    }
++    peek() {
++        return this.tokens[this.index++];
++    }
++}
+diff -ruN submodules/grid-layout/lib/parser/track.d.ts src/grid-layout/lib/parser/track.d.ts
+--- submodules/grid-layout/lib/parser/track.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/parser/track.d.ts	2023-05-23 13:26:33.279533624 +0300
+@@ -0,0 +1,17 @@
++import { Parser } from './base';
++import { TrackItem, TrackList } from '../util/config';
++type conditionChecker = (val: string) => boolean;
++export declare class TrackParser extends Parser {
++    trackList: TrackList;
++    parse(): void;
++    parseValue(value: string): TrackItem;
++    parseFitContent(): TrackItem;
++    private parseMinMax;
++    parseLineNames(): string[];
++    parseRepeatNum(val: string): number | 'auto-fill' | 'auto-fit';
++    parseRepeat(): TrackItem;
++    parseCondition(checkFn: conditionChecker, supports: string[]): TrackList;
++    checkAutoRepeatTrack(list: TrackList): void;
++    checkTrack(trackList: TrackList): void;
++}
++export {};
+diff -ruN submodules/grid-layout/lib/parser/track.js src/grid-layout/lib/parser/track.js
+--- submodules/grid-layout/lib/parser/track.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/parser/track.js	2023-05-23 13:29:58.259530863 +0300
+@@ -0,0 +1,198 @@
++import { Parser } from './base.js';
++import { TrackTokenizer } from '../tokenizer/track.js';
++import { isFixedBreadth, isInflexibleBreadth, isTrackBreadth } from '../util/track.js';
++export class TrackParser extends Parser {
++    trackList;
++    parse() {
++        const instance = new TrackTokenizer(this.text);
++        this.tokens = instance.getTokens();
++        this.length = this.tokens.length;
++        const result = this.parseCondition(_ => true, ['minmax', 'fit-content', 'repeat']);
++        this.checkTrack(result);
++        this.trackList = result;
++    }
++    parseValue(value) {
++        if (value === 'auto' || value === 'min-content' || value === 'max-content') {
++            return { type: value, baseSize: 0, growthLimit: Infinity };
++        }
++        const lenReg = /^(\d+(?:\.\d+)?)+(px|fr|%)?$/;
++        const match = value.match(lenReg);
++        if (match) {
++            const val = parseFloat(match[1]);
++            if (val < 0) {
++                throw new Error(`${value} must be positive`);
++            }
++            if (!match[2] || match[2] === 'px') {
++                return { value: val, type: 'px', baseSize: val, growthLimit: val };
++            }
++            if (match[2] === '%') {
++                return { value: val, type: '%' };
++            }
++            if (match[2] === 'fr') {
++                return { value: val, type: 'fr', baseSize: 0, growthLimit: 0 };
++            }
++        }
++        throw new Error(`${value} is not allowed`);
++    }
++    parseFitContent() {
++        this.nextNeed('(');
++        const value = this.peek();
++        this.nextNeed(')');
++        const val = this.parseValue(value);
++        if (!isFixedBreadth(val)) {
++            throw new Error(`${value} is not allowed in fit-content`);
++        }
++        return { type: 'fit-content', args: [val], baseSize: 0, growthLimit: Infinity };
++    }
++    parseMinMax() {
++        this.nextNeed('(');
++        const minValue = this.peek();
++        const min = this.parseValue(minValue);
++        this.nextNeed(',');
++        const maxValue = this.peek();
++        const max = this.parseValue(maxValue);
++        this.nextNeed(')');
++        if (isInflexibleBreadth(min) && isTrackBreadth(max) ||
++            isFixedBreadth(min) && isTrackBreadth(max) ||
++            isInflexibleBreadth(min) && isFixedBreadth(max)) {
++            return { type: 'minmax', args: [min, max], baseSize: 0, growthLimit: Infinity };
++        }
++        throw new Error(`minmax(${min.value}${min.type}, ${max.value}${max.type}) is not allowd`);
++    }
++    parseLineNames() {
++        const lineNames = [];
++        let isEnd = false;
++        while (this.index < this.length) {
++            const item = this.peek();
++            if (item === ']') {
++                isEnd = true;
++                break;
++            }
++            else {
++                lineNames.push(item);
++            }
++        }
++        if (!isEnd) {
++            throw new Error(`parse line names error`);
++        }
++        return lineNames;
++    }
++    parseRepeatNum(val) {
++        if (val === 'auto-fill' || val === 'auto-fit')
++            return val;
++        if (/^\d+$/.test(val)) {
++            const result = parseInt(val, 10);
++            if (result <= 0) {
++                throw new Error(`${val} is not allowd in repeat`);
++            }
++            return result;
++        }
++        throw new Error(`${val} is not allowed`);
++    }
++    parseRepeat() {
++        this.nextNeed('(');
++        const repeatNum = this.parseRepeatNum(this.peek());
++        this.nextNeed(',');
++        let isEnd = false;
++        const result = this.parseCondition(str => {
++            const flag = (str !== ')');
++            if (!flag) {
++                isEnd = true;
++            }
++            return flag;
++        }, ['minmax', 'fit-content']);
++        if (!isEnd) {
++            throw new Error('can not find ) in repeat syntax');
++        }
++        let type = 'fix-repeat';
++        if (repeatNum === 'auto-fill') {
++            type = 'auto-fill-repeat';
++        }
++        else if (repeatNum === 'auto-fit') {
++            type = 'auto-fit-repeat';
++        }
++        return {
++            type: type,
++            args: [repeatNum, result]
++        };
++    }
++    parseCondition(checkFn, supports) {
++        const tracks = [];
++        let lineNames = [];
++        while (this.index < this.length) {
++            const item = this.peek();
++            if (!checkFn(item))
++                break;
++            let value;
++            if (item === '[') {
++                lineNames = this.parseLineNames();
++                continue;
++            }
++            if (item === 'minmax' && supports.includes('minmax')) {
++                value = this.parseMinMax();
++            }
++            else if (item === 'fit-content' && supports.includes('fit-content')) {
++                value = this.parseFitContent();
++            }
++            else if (item === 'repeat' && supports.includes('repeat')) {
++                value = this.parseRepeat();
++            }
++            else {
++                value = this.parseValue(item);
++            }
++            value.lineNamesStart = lineNames;
++            value.lineNamesEnd = [];
++            if (tracks.length) {
++                tracks[tracks.length - 1].lineNamesEnd = lineNames.slice();
++            }
++            lineNames = [];
++            tracks.push(value);
++        }
++        if (lineNames.length) {
++            tracks[tracks.length - 1].lineNamesEnd = lineNames;
++        }
++        return tracks;
++    }
++    checkAutoRepeatTrack(list) {
++        list.forEach(item => {
++            const type = item.type;
++            if (type === 'px' || type === '%')
++                return;
++            if (type === 'minmax') {
++                const arg0 = item.args[0];
++                const arg1 = item.args[1];
++                if (isFixedBreadth(arg0) && isTrackBreadth(arg1))
++                    return;
++                if (isInflexibleBreadth(arg0) && isFixedBreadth(arg1))
++                    return;
++            }
++            throw new Error(`${item.type} not allowed in auto-repeat`);
++        });
++    }
++    checkTrack(trackList) {
++        let autoRepeat = 0;
++        let intrinsic = 0;
++        let flexible = 0;
++        trackList.forEach(item => {
++            switch (item.type) {
++                case 'auto-fit-repeat':
++                case 'auto-fill-repeat':
++                    autoRepeat++;
++                    this.checkAutoRepeatTrack(item.args[1]);
++                    break;
++                case 'auto':
++                case 'fit-content':
++                case 'min-content':
++                case 'max-content':
++                    intrinsic++;
++                    break;
++                case 'fr':
++                    flexible += item.value;
++                    break;
++            }
++        });
++        if (autoRepeat > 1 || (autoRepeat && (intrinsic || flexible))) {
++            throw new Error('auto-repeat can not be combined with intrinsic or flexible sizes');
++        }
++    }
++}
+diff -ruN submodules/grid-layout/lib/tokenizer/area.d.ts src/grid-layout/lib/tokenizer/area.d.ts
+--- submodules/grid-layout/lib/tokenizer/area.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/tokenizer/area.d.ts	2023-05-23 13:26:33.289533624 +0300
+@@ -0,0 +1,4 @@
++import { Tokenizer } from './base';
++export declare class AreaTokenizer extends Tokenizer {
++    getTokens(): string[][];
++}
+diff -ruN submodules/grid-layout/lib/tokenizer/area.js src/grid-layout/lib/tokenizer/area.js
+--- submodules/grid-layout/lib/tokenizer/area.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/tokenizer/area.js	2023-05-23 13:30:20.739530938 +0300
+@@ -0,0 +1,44 @@
++import { Tokenizer } from './base.js';
++export class AreaTokenizer extends Tokenizer {
++    getTokens() {
++        const areas = [];
++        let tokens = [];
++        let token = '';
++        let index = 0;
++        let start = false;
++        while (index < this.length) {
++            const char = this.text[index];
++            if (char === '"') {
++                if (!start) {
++                    start = true;
++                }
++                else {
++                    start = false;
++                    if (token) {
++                        tokens.push(token);
++                        token = '';
++                    }
++                    areas.push(tokens);
++                    tokens = [];
++                }
++            }
++            else {
++                const isWhitespace = this.isWhitespace(char);
++                if (isWhitespace) {
++                    if (token) {
++                        tokens.push(token);
++                        token = '';
++                    }
++                }
++                else {
++                    token += char;
++                }
++            }
++            index++;
++        }
++        if (token) {
++            throw new Error(`area syntax error`);
++        }
++        return areas;
++    }
++}
+diff -ruN submodules/grid-layout/lib/tokenizer/base.d.ts src/grid-layout/lib/tokenizer/base.d.ts
+--- submodules/grid-layout/lib/tokenizer/base.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/tokenizer/base.d.ts	2023-05-23 13:26:33.249533624 +0300
+@@ -0,0 +1,6 @@
++export declare class Tokenizer {
++    text: string;
++    length: number;
++    constructor(text: string);
++    isWhitespace(char: string): boolean;
++}
+diff -ruN submodules/grid-layout/lib/tokenizer/base.js src/grid-layout/lib/tokenizer/base.js
+--- submodules/grid-layout/lib/tokenizer/base.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/tokenizer/base.js	2023-05-23 13:26:33.239533624 +0300
+@@ -0,0 +1,12 @@
++const whitespace = ' \u00a0\n\r\t\f\u000b\u200b\u180e\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200a\u202f\u205f\u3000';
++export class Tokenizer {
++    text;
++    length;
++    constructor(text) {
++        this.text = text || '';
++        this.length = this.text.length;
++    }
++    isWhitespace(char) {
++        return whitespace.indexOf(char) > -1;
++    }
++}
+diff -ruN submodules/grid-layout/lib/tokenizer/track.d.ts src/grid-layout/lib/tokenizer/track.d.ts
+--- submodules/grid-layout/lib/tokenizer/track.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/tokenizer/track.d.ts	2023-05-23 13:26:33.249533624 +0300
+@@ -0,0 +1,4 @@
++import { Tokenizer } from './base';
++export declare class TrackTokenizer extends Tokenizer {
++    getTokens(): string[];
++}
+diff -ruN submodules/grid-layout/lib/tokenizer/track.js src/grid-layout/lib/tokenizer/track.js
+--- submodules/grid-layout/lib/tokenizer/track.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/tokenizer/track.js	2023-05-23 13:30:40.639530865 +0300
+@@ -0,0 +1,30 @@
++import { Tokenizer } from './base.js';
++const trackListSplitChars = '()[],/';
++export class TrackTokenizer extends Tokenizer {
++    getTokens() {
++        const tokens = [];
++        let token = '';
++        let index = 0;
++        while (index < this.length) {
++            const char = this.text[index];
++            const isWhitespace = this.isWhitespace(char);
++            if (isWhitespace || trackListSplitChars.indexOf(char) > -1) {
++                if (token) {
++                    tokens.push(token);
++                    token = '';
++                }
++                index++;
++                if (!isWhitespace) {
++                    tokens.push(char);
++                }
++                continue;
++            }
++            token += char;
++            index++;
++        }
++        if (token) {
++            tokens.push(token);
++        }
++        return tokens;
++    }
++}
+diff -ruN submodules/grid-layout/lib/util/config.d.ts src/grid-layout/lib/util/config.d.ts
+--- submodules/grid-layout/lib/util/config.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/util/config.d.ts	2023-05-23 13:26:33.119533625 +0300
+@@ -0,0 +1,121 @@
++import { Node } from '../node';
++type SelfAlignment = 'stretch' | 'center' | 'start' | 'end' | 'auto';
++type ContentAlignment = 'stretch' | 'start' | 'center' | 'end' | 'space-between' | 'space-around' | 'space-evenly';
++export type GridLineProperty = 'gridRowStart' | 'gridRowEnd' | 'gridColumnStart' | 'gridColumnEnd';
++export type TrackSizeProperty = 'gridTemplateRows' | 'gridTemplateColumns' | 'gridAutoRows' | 'gridAutoColumns';
++export type StringOrNumber = string | number;
++export type BorderProperty = 'border' | 'borderTop' | 'borderRight' | 'borderBottom' | 'borderLeft';
++export type PaddingProperty = 'padding' | 'paddingTop' | 'paddingRight' | 'paddingBottom' | 'paddingLeft';
++export type MarginProperty = 'margin' | 'marginTop' | 'marginRight' | 'marginBottom' | 'marginLeft';
++export type BorderPaddingMarginProperty = BorderProperty | PaddingProperty | MarginProperty;
++export type TrackType = 'row' | 'column';
++export type TrackList = TrackItem[];
++export type AlignmentProperty = 'justifyContent' | 'alignContent' | 'alignItems' | 'justifyItems';
++export interface ContainerConfig {
++    gridAutoFlow?: string | GridAutoFlow;
++    gridAutoColumns?: string | TrackList;
++    gridAutoRows?: string | TrackList;
++    gridColumnGap?: StringOrNumber;
++    gridRowGap?: StringOrNumber;
++    gridTemplateAreas?: string | string[][];
++    gridTemplateRows?: string | TrackList;
++    gridTemplateColumns?: string | TrackList;
++    width: number;
++    height: number;
++    alignItems?: SelfAlignment;
++    justifyItems?: SelfAlignment;
++    alignContent?: ContentAlignment;
++    justifyContent?: ContentAlignment;
++}
++export interface NodeConfig {
++    gridArea?: string;
++    gridColumnEnd?: StringOrNumber | GridLine;
++    gridColumnStart?: StringOrNumber | GridLine;
++    gridRowEnd?: StringOrNumber | GridLine;
++    gridRowStart?: StringOrNumber | GridLine;
++    alignSelf?: SelfAlignment;
++    justifySelf?: SelfAlignment;
++    paddingTop?: StringOrNumber;
++    paddingRight?: StringOrNumber;
++    paddingBottom?: StringOrNumber;
++    paddingLeft?: StringOrNumber;
++    padding?: any;
++    marginTop?: StringOrNumber;
++    marginRight?: StringOrNumber;
++    marginBottom?: StringOrNumber;
++    marginLeft?: StringOrNumber;
++    margin?: StringOrNumber;
++    borderTop?: StringOrNumber;
++    borderRight?: StringOrNumber;
++    borderBottom?: StringOrNumber;
++    borderLeft?: StringOrNumber;
++    border?: any;
++    width?: StringOrNumber;
++    height?: StringOrNumber;
++    boxSizing?: string;
++    order?: number;
++    minWidth?: StringOrNumber;
++    maxWidth?: StringOrNumber;
++    minHeight?: StringOrNumber;
++    maxHeight?: StringOrNumber;
++    minContentWidth?: StringOrNumber;
++    minContentHeight?: StringOrNumber;
++    maxContentWidth?: StringOrNumber;
++    maxContentHeight?: StringOrNumber;
++}
++export interface TrackItem {
++    type: string;
++    value?: number;
++    args?: Array<number | string | TrackItem | TrackList>;
++    baseSize?: number;
++    growthLimit?: number;
++    lineNamesStart?: string[];
++    lineNamesEnd?: string[];
++    autoFit?: boolean;
++    pos?: number;
++}
++export interface BoundingRect {
++    top?: number;
++    left?: number;
++    width?: number;
++    height?: number;
++}
++export interface GridCell extends BoundingRect {
++    row: number;
++    column: number;
++    name?: string;
++    node: Node[];
++}
++export interface GridLine {
++    span?: boolean;
++    customIdent?: string;
++    integer?: number;
++}
++export interface GridAutoFlow {
++    row?: boolean;
++    column?: boolean;
++    dense?: boolean;
++}
++export interface GridPlacement {
++    row: {
++        start: number;
++        end: number;
++        size: number;
++    };
++    column: {
++        start: number;
++        end: number;
++        size: number;
++    };
++}
++export interface ContainerBoundingRect extends BoundingRect {
++    children?: BoundingRect[];
++}
++interface Position {
++    row: number;
++    column: number;
++}
++export interface AreaNames {
++    [key: string]: Position[];
++}
++export {};
+diff -ruN submodules/grid-layout/lib/util/config.js src/grid-layout/lib/util/config.js
+--- submodules/grid-layout/lib/util/config.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/util/config.js	2023-05-23 13:26:33.089533625 +0300
+@@ -0,0 +1 @@
++export {};
+diff -ruN submodules/grid-layout/lib/util/track.d.ts src/grid-layout/lib/util/track.d.ts
+--- submodules/grid-layout/lib/util/track.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/util/track.d.ts	2023-05-23 13:26:33.259533624 +0300
+@@ -0,0 +1,12 @@
++import { TrackItem } from './config';
++export declare function isFixedBreadth(value: TrackItem): boolean;
++export declare function isInflexibleBreadth(value: TrackItem): boolean;
++export declare function isTrackBreadth(value: TrackItem): boolean;
++export declare function isAutoRepeat(value: TrackItem): boolean;
++export declare function isAutoFitRepeat(value: TrackItem): boolean;
++export declare function isFixedRepeat(value: TrackItem): boolean;
++export declare function isAutoTrack(track: TrackItem): boolean;
++export declare function isFrTrack(track: TrackItem): boolean;
++export declare function isMinMaxTrack(track: TrackItem): boolean;
++export declare function isFrMinMaxTrack(track: TrackItem): boolean;
++export declare function isAutoMinMaxTrack(track: TrackItem): boolean;
+diff -ruN submodules/grid-layout/lib/util/track.js src/grid-layout/lib/util/track.js
+--- submodules/grid-layout/lib/util/track.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/util/track.js	2023-05-23 13:26:33.259533624 +0300
+@@ -0,0 +1,41 @@
++export function isFixedBreadth(value) {
++    return value.type === 'px' || value.type === '%';
++}
++export function isInflexibleBreadth(value) {
++    return isFixedBreadth(value) || ['min-content', 'max-content', 'auto'].includes(value.type);
++}
++export function isTrackBreadth(value) {
++    return isInflexibleBreadth(value) || value.type === 'fr';
++}
++export function isAutoRepeat(value) {
++    return value.type === 'auto-fill-repeat' || value.type === 'auto-fit-repeat';
++}
++export function isAutoFitRepeat(value) {
++    return value.type === 'auto-fit-repeat';
++}
++export function isFixedRepeat(value) {
++    return value.type === 'fix-repeat';
++}
++export function isAutoTrack(track) {
++    return track.type === 'auto';
++}
++export function isFrTrack(track) {
++    return track.type === 'fr';
++}
++export function isMinMaxTrack(track) {
++    return track.type === 'minmax';
++}
++export function isFrMinMaxTrack(track) {
++    if (isMinMaxTrack(track)) {
++        const max = track.args[1];
++        return max.type === 'fr';
++    }
++    return false;
++}
++export function isAutoMinMaxTrack(track) {
++    if (isMinMaxTrack(track)) {
++        const max = track.args[1];
++        return max.type === 'auto';
++    }
++    return false;
++}
+diff -ruN submodules/grid-layout/lib/util/util.d.ts src/grid-layout/lib/util/util.d.ts
+--- submodules/grid-layout/lib/util/util.d.ts	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/util/util.d.ts	2023-05-23 13:26:33.179533625 +0300
+@@ -0,0 +1,7 @@
++export declare const deepmerge: (obj: any) => any;
++export declare function parseAlignSpace(space: number, type: string, num: number): number[];
++export declare function parsePercentValue(value: string): false | number;
++export declare function parseMarginAuto(value: string | number, autoValue?: number): string | number;
++export declare function parseNumberValue(value: string | number, parentValue?: number): string | number;
++export declare function parseMinMaxValue(value: number, min: number, max: number): number;
++export declare function parseCombineValue<T>(value: T | T[]): T[];
+diff -ruN submodules/grid-layout/lib/util/util.js src/grid-layout/lib/util/util.js
+--- submodules/grid-layout/lib/util/util.js	1970-01-01 02:00:00.000000000 +0200
++++ src/grid-layout/lib/util/util.js	2023-05-23 13:26:33.169533625 +0300
+@@ -0,0 +1,104 @@
++export const deepmerge = function (obj) {
++    return JSON.parse(JSON.stringify(obj));
++};
++export function parseAlignSpace(space, type, num) {
++    const marginSize = [];
++    const fillFull = (size = 0) => {
++        for (let i = marginSize.length; i < num + 1; i++) {
++            marginSize[i] = size;
++        }
++    };
++    if (space < 0) {
++        if (type === 'space-between' || type === 'stretch') {
++            type = 'start';
++        }
++        else if (type === 'space-around' || type === 'space-evenly') {
++            type = 'center';
++        }
++    }
++    if (type === 'end') {
++        marginSize[0] = space;
++        fillFull();
++    }
++    else if (type === 'center') {
++        const itemSize = space / 2;
++        marginSize[0] = itemSize;
++        fillFull();
++        marginSize[num] = itemSize;
++    }
++    else if (type === 'space-between') {
++        marginSize[0] = 0;
++        if (num === 1) {
++            fillFull(space);
++        }
++        else {
++            fillFull(space / (num - 1));
++            marginSize[num] = 0;
++        }
++    }
++    else if (type === 'space-around') {
++        const itemSize = space / num;
++        marginSize[0] = itemSize / 2;
++        fillFull(itemSize);
++        marginSize[num] = itemSize / 2;
++    }
++    else if (type === 'space-evenly') {
++        const itemSize = space / (num + 1);
++        fillFull(itemSize);
++    }
++    else {
++        fillFull();
++    }
++    return marginSize;
++}
++export function parsePercentValue(value) {
++    if (!/%$/.test(value))
++        return false;
++    return 0.01 * parseFloat(value);
++}
++export function parseMarginAuto(value, autoValue = 0) {
++    if (value === 'auto')
++        return autoValue;
++    return value || 0;
++}
++export function parseNumberValue(value, parentValue) {
++    if (value === 'auto' || typeof value === 'number')
++        return value;
++    if (!value)
++        return 0;
++    const percentValue = parsePercentValue(value);
++    if (typeof percentValue === 'number') {
++        value = percentValue * parentValue;
++    }
++    else if (/^[\d.-]+$/.test(value)) {
++        value = parseFloat(value);
++    }
++    else {
++        throw new Error(`${value} is not a number`);
++    }
++    return value;
++}
++export function parseMinMaxValue(value, min, max) {
++    if (min && value < min) {
++        value = min;
++    }
++    if (max && value > max) {
++        value = max;
++    }
++    return value;
++}
++export function parseCombineValue(value) {
++    if (!Array.isArray(value)) {
++        value = [value, value, value, value];
++    }
++    else if (value.length === 1) {
++        value = [value[0], value[0], value[0], value[0]];
++    }
++    else if (value.length === 2) {
++        value = [value[0], value[1], value[0], value[1]];
++    }
++    else if (value.length === 3) {
++        value[3] = value[1];
++    }
++    return value;
++}
+diff -ruN "submodules/grid-layout/tsconfig copy.json" "src/grid-layout/tsconfig copy.json"
+--- "submodules/grid-layout/tsconfig copy.json"	1970-01-01 02:00:00.000000000 +0200
++++ "src/grid-layout/tsconfig copy.json"	2023-05-23 13:16:42.729531182 +0300
+@@ -0,0 +1,14 @@
++{
++  "compilerOptions": {
++    "module": "commonjs",
++    "noImplicitAny": true,
++    "removeComments": true,
++    "preserveConstEnums": true,
++    "allowSyntheticDefaultImports": true,
++    "target": "ES2015",
++    "outDir": "lib/"
++  },
++  "include": [
++    "src/**/*.ts"
++  ]
++}
+\ No newline at end of file
+diff -ruN submodules/grid-layout/tsconfig.json src/grid-layout/tsconfig.json
+--- submodules/grid-layout/tsconfig.json	2023-05-23 13:03:25.719528148 +0300
++++ src/grid-layout/tsconfig.json	2023-05-23 13:25:44.969533734 +0300
+@@ -1,11 +1,13 @@
+ {
+   "compilerOptions": {
+-    "module": "commonjs",
++    "module": "ESNext",
++    "moduleResolution": "nodenext",
++    "declaration": true,   
+     "noImplicitAny": true,
+     "removeComments": true,
+     "preserveConstEnums": true,
+     "allowSyntheticDefaultImports": true,
+-    "target": "ES2015",
++    "target": "ESNext",
+     "outDir": "lib/"
+   },
+   "include": [

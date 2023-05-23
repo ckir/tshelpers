@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "nodenext",
+    "declaration": true,   
+    "noImplicitAny": true,
+    "removeComments": true,
+    "preserveConstEnums": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ESNext",
+    "outDir": "lib/"
+  },
+  "include": [
+    "src/**/*.ts"
+  ]
+}

@@ -1,0 +1,12 @@
+import { TrackItem } from './config';
+export declare function isFixedBreadth(value: TrackItem): boolean;
+export declare function isInflexibleBreadth(value: TrackItem): boolean;
+export declare function isTrackBreadth(value: TrackItem): boolean;
+export declare function isAutoRepeat(value: TrackItem): boolean;
+export declare function isAutoFitRepeat(value: TrackItem): boolean;
+export declare function isFixedRepeat(value: TrackItem): boolean;
+export declare function isAutoTrack(track: TrackItem): boolean;
+export declare function isFrTrack(track: TrackItem): boolean;
+export declare function isMinMaxTrack(track: TrackItem): boolean;
+export declare function isFrMinMaxTrack(track: TrackItem): boolean;
+export declare function isAutoMinMaxTrack(track: TrackItem): boolean;

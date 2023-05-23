@@ -38,8 +38,9 @@
     "node_modules"
   ],
   "include": [
+    "src/ansi-sequence-parser/src",    
     "src/antsy/src",
-    "src/ansi-sequence-parser/src",
+    "src/grid-layout/src",
     "src/kkirbatski-rectangle/src",
     "src/positional-tokenizer/src",
     "src/terminal-canvas/src"

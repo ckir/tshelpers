@@ -28,8 +28,8 @@ function getPatchNames(directoryPath) {
     return patches
 }
 
-const moduleName = 'ansi-sequence-parser'
-// const moduleName = process.argv[3] || null
+// const moduleName = 'ansi-sequence-parser'
+const moduleName = process.argv[2] || null
 const directoryPath = 'submodules_patches'
 let cmd
 

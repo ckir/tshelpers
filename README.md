@@ -1,13 +1,6 @@
-# NodeJS Starter Project
+# Typescript repos recompiles for personal use
 
-Fork this repo to create a starter
+grid-layout needs its own modified tsconfig.json use
+tsc -p src/grid-layout/tsconfig.json
+to build
 
-<!-- Before copying this remember:
-
-shopt -s dotglob # To copy hidden files
-cp -r ...        # To copy subfolders
-rm -Rf .git      # To make the copy standalone
-
-or copy ts_template
-from template_internals to ~/.local/bin/ for convinience
- -->

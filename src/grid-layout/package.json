@@ -1,0 +1,52 @@
+{
+  "name": "@welefen/grid-layout",
+  "version": "1.1.1",
+  "description": "CSS Grid Layout, can use in Canvas/node-canvas",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "directories": {
+    "test": "test"
+  },
+  "keywords": [
+    "grid",
+    "layout",
+    "canvas"
+  ],
+  "scripts": {
+    "build": "tsc -d",
+    "start": "tsc --watch",
+    "pack": "webpack",
+    "test": "nyc ava test/test.js && nyc report --reporter=html",
+    "prepublish": "npm run build && npm test"
+  },
+  "ava": {
+    "compileEnhancements": false,
+    "extensions": [
+      "ts"
+    ],
+    "require": [
+      "ts-node/register"
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/welefen/grid-layout.git"
+  },
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/welefen/grid-layout/issues"
+  },
+  "homepage": "https://github.com/welefen/grid-layout#readme",
+  "devDependencies": {
+    "ava": "^2.4.0",
+    "nyc": "^15.0.0",
+    "think-helper": "^1.1.2",
+    "ts-node": "^8.4.1",
+    "typescript": "^3.6.4",
+    "ts-loader": "^6.2.2",
+    "webpack": "^4.42.1",
+    "webpack-cli": "^3.3.11"
+  },
+  "dependencies": {}
+}

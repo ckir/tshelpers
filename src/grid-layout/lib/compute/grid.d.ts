@@ -1,0 +1,31 @@
+import { GridCell, TrackList, GridAutoFlow, TrackItem, AreaNames } from '../util/config';
+import { Node } from '../node';
+import { Container } from '../container';
+export declare class GridCompute {
+    cells: GridCell[][];
+    areaNames: AreaNames;
+    container: Container;
+    rowTrack: TrackList;
+    initRowTrackSize: number;
+    columnTrack: TrackList;
+    initColumnTrackSize: number;
+    autoRowTrack: TrackList;
+    autoRowIndex: number;
+    autoColumnTrack: TrackList;
+    autoColumnIndex: number;
+    autoFlow: GridAutoFlow;
+    constructor(container: Container);
+    get defaultAutoTrack(): TrackItem;
+    get rowSize(): number;
+    get columnSize(): number;
+    private getInitCell;
+    putNodeInCell(row: number, column: number, node: Node): void;
+    private flexTrackSize;
+    setAreas(areas: string[][]): void;
+    putNodes(nodes: Node[]): void;
+    private putGivedNodes;
+    private tryToSetNode;
+    private putAutoNodes;
+    private findPositionByCustomIdent;
+    private parseGridPlacement;
+}

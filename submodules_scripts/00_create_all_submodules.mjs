@@ -12,7 +12,7 @@ const CONFIG = [
     'https://code.lag.net/robey/antsy.git',
     'https://github.com/cmajsmith/positional-tokenizer.git',
     'https://github.com/mmis1000/terminal-canvas.git',
-    'https://github.com/kkirby/kkirbatski-rectangle.git'
+    'https://github.com/kkirby/kkirbatski-rectangle.git',
 ]
 const folderSubmodules = `submodules`
 let cmd

@@ -17,3 +17,6 @@
 [submodule "submodules/kkirbatski-rectangle"]
 	path = submodules/kkirbatski-rectangle
 	url = https://github.com/kkirby/kkirbatski-rectangle.git
+[submodule "submodules/grid-layout"]
+	path = submodules/grid-layout
+	url = https://github.com/welefen/grid-layout.git

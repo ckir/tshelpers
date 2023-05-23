@@ -19,8 +19,8 @@ function run(cmd) {
     }
 }
 
-const moduleName = 'ansi-sequence-parser'
-// const moduleName = process.argv[3] || null
+// const moduleName = 'ansi-sequence-parser'
+const moduleName = process.argv[2] || null
 const folderSubmodules = 'submodules'
 const folderLocal = 'src'
 const folderPatches = 'submodules_patches'
