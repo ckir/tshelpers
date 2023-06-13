@@ -43,6 +43,7 @@
     "src/grid-layout/src",
     "src/kkirbatski-rectangle/src",
     "src/positional-tokenizer/src",
-    "src/terminal-canvas/src"
+    "src/terminal-canvas/src",
+    "submodules/typeflex/src"
   ]
 }

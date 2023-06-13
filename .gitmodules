@@ -20,3 +20,6 @@
 [submodule "submodules/grid-layout"]
 	path = submodules/grid-layout
 	url = https://github.com/welefen/grid-layout.git
+[submodule "submodules/typeflex"]
+	path = submodules/typeflex
+	url = https://github.com/dead/typeflex.git
