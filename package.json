@@ -29,7 +29,7 @@
     "@jest/globals": "30.0.3",
     "@jest/types": "30.0.1",
     "@types/jest": "29.5.14",
-    "@types/node": "24.0.3",
+    "@types/node": "24.0.4",
     "@types/supertest": "6.0.3",
     "@typescript-eslint/eslint-plugin": "8.35.0",
     "@typescript-eslint/parser": "8.35.0",
